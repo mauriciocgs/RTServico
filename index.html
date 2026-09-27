@@ -8,11 +8,6 @@
 <!-- PDF Generator -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-<!-- SDKs do Firebase (Versão Compatível) -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
-
 <meta name="theme-color" content="#2563eb">
 
 <style>
@@ -392,22 +387,68 @@ canvas{width:100%;height:130px;background:var(--card);border-radius:6px;touch-ac
 </main>
 
 <script>
-// ---------- CONFIGURAÇÃO DO FIREBASE ----------
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyAB_-KfjM2f87l0e0mTMu9StYYlII0q5yQ",
-  authDomain: "rtbalancas.firebaseapp.com",
-  projectId: "rtbalancas",
-  storageBucket: "rtbalancas.firebasestorage.app",
-  messagingSenderId: "151794522966",
-  appId: "1:151794522966:web:48fa152927d8199828d4f7",
-  measurementId: "G-2FTLN9JY0M"
+// ---------- CACHE LOCAL DO NAVEGADOR ----------
+// Mantém a API usada pela aplicação, mas salva somente neste navegador/aparelho.
+const LOCAL_DB_KEY = 'rt-balancas-cache-v1';
+function readLocalDb(){
+  try{ return JSON.parse(localStorage.getItem(LOCAL_DB_KEY)||'{}'); }
+  catch(e){ return {}; }
+}
+function writeLocalDb(data){
+  try{ localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(data)); }
+  catch(e){ throw new Error('O cache do navegador está cheio. Remova algumas fotos ou relatórios antigos.'); }
+}
+function localDocSnapshot(id, data){
+  return {id, exists:data!==undefined, data:()=>data===undefined?undefined:JSON.parse(JSON.stringify(data))};
+}
+const db = {
+  collection(name){
+    let orderField=null, orderDirection='asc', maxItems=Infinity;
+    const query={
+      orderBy(field,direction='asc'){ orderField=field; orderDirection=direction; return query; },
+      limit(value){ maxItems=value; return query; },
+      async get(){
+        const store=readLocalDb();
+        let rows=Object.entries(store[name]||{}).map(([id,data])=>({id,data}));
+        if(orderField) rows.sort((a,b)=>String(a.data[orderField]||'').localeCompare(String(b.data[orderField]||''))*(orderDirection==='desc'?-1:1));
+        return {docs:rows.slice(0,maxItems).map(row=>localDocSnapshot(row.id,row.data))};
+      },
+      doc(id){
+        return {
+          async get(){ const store=readLocalDb(); return localDocSnapshot(id,(store[name]||{})[id]); },
+          async set(data){
+            const store=readLocalDb(); store[name]=store[name]||{};
+            const clean=JSON.parse(JSON.stringify(data));
+            store[name][id]={...(store[name][id]||{}),...clean}; writeLocalDb(store);
+          },
+          async delete(){ const store=readLocalDb(); if(store[name]) delete store[name][id]; writeLocalDb(store); }
+        };
+      },
+      async add(data){ const id='d'+Date.now()+Math.random().toString(36).slice(2,7); await query.doc(id).set(data); return {id}; }
+    };
+    return query;
+  }
 };
 
-// Inicializa o Firebase e o Banco de Dados Firestore
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-const storage = firebase.storage();
+function imageToDataUrl(file, maxSize=1200, quality=.78){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error('Não foi possível ler a imagem.'));
+    reader.onload=()=>{
+      const img=new Image();
+      img.onerror=()=>reject(new Error('Formato de imagem inválido.'));
+      img.onload=()=>{
+        const scale=Math.min(1,maxSize/Math.max(img.width,img.height));
+        const canvas=document.createElement('canvas');
+        canvas.width=Math.max(1,Math.round(img.width*scale)); canvas.height=Math.max(1,Math.round(img.height*scale));
+        canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+        resolve(canvas.toDataURL('image/jpeg',quality));
+      };
+      img.src=reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 let role='admin'; // 'admin' | 'op' | 'view'
 let services=[], parts=[], photos=[];
@@ -691,15 +732,13 @@ function calcTotals(){
   return {ts,tp,gross,discSvcPct,discPartsPct,discSvcVal,discPartsVal,net,total:net};
 }
 
-// ---------- Photos (Upload via Firebase Storage) ----------
+// ---------- Photos (cache local) ----------
 async function handlePhotos(files){
-  msg('Enviando foto(s)...', true);
+  msg('Preparando foto(s)...', true);
   for(const f of Array.from(files)){
-    try{ 
-      const ref = storage.ref('fotos_relatorios/' + Date.now() + '_' + f.name);
-      await ref.put(f);
-      const url = await ref.getDownloadURL();
-      photos.push({id: Date.now(), url: url}); 
+    try{
+      const url=await imageToDataUrl(f);
+      photos.push({id:Date.now()+Math.random(),url});
     }catch(e){ 
       msg('Falha ao enviar foto: '+(e.message||e), false); 
     }
@@ -908,11 +947,7 @@ async function saveAdmin(){
     const editId=document.getElementById('compEditId').value;
     let logoUrl = editId ? (companies.find(c=>c.id===editId)||{}).logoUrl||'' : '';
     const f=document.getElementById('admLogoInput').files[0];
-    if(f){ 
-      const ref = storage.ref('logos/' + Date.now() + '_' + f.name);
-      await ref.put(f);
-      logoUrl = await ref.getDownloadURL();
-    }
+    if(f) logoUrl=await imageToDataUrl(f,512,.82);
     const data={
       name, logoUrl,
       address:document.getElementById('admCompanyAddress').value.trim(),
