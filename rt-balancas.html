@@ -802,6 +802,7 @@ async function openAuditLog(){
       '</tbody></table>' : '<p style="color:var(--muted)">Nenhum registro de auditoria ainda.</p>';
   }catch(err){ box.innerHTML='<p style="color:var(--danger)">Erro ao carregar: '+esc(err.message||String(err))+'</p>'; }
 }
+async function finalizeReport(){
   if(role!=='admin'){ msg('Apenas o administrador pode concluir um relatório.', false); return; }
   try{
     const data=collect('Concluído');

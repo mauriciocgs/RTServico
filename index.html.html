@@ -13,9 +13,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 
-<link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#2563eb">
-<link rel="apple-touch-icon" href="icon-192.png">
 
 <style>
 :root{
@@ -425,13 +423,6 @@ let activeTech=null;
   updateUserChip();
   renderList();
 })();
-
-// Registro do PWA Service Worker
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js')
-    .then(() => console.log('Service Worker Registrado'))
-    .catch(err => console.log('Erro ao registrar Service Worker:', err));
-}
 
 async function resolveRole(){
   // Por padrão liberado para desenvolvimento. Altere conforme sua necessidade.
